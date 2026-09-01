@@ -2,13 +2,13 @@ const fs = require('fs');
 
 const report = JSON.parse(
   fs.readFileSync(
-    'regression-report.json',
+    'performance-analysis.json',
     'utf8'
   )
 );
 
 const content = `
-# Functional Regression Test Result
+# Performance Test Result
 
 ## Application
 
@@ -16,7 +16,7 @@ ${report.appname}
 
 ## Pull Request
 
-${report.pr_id}
+${report.pr_id || 'N/A'}
 
 ${report.analysis_markdown}
 
@@ -33,7 +33,7 @@ const auth =
 async function updateWiki() {
 
   const response = await fetch(
-    'https://dev.azure.com/CRaaSOrg/voyagenie/_apis/wiki/wikis/voyagenie.wiki/pages?path=/Functional-Regression-Test-Result&api-version=7.1',
+    'https://dev.azure.com/CRaaSOrg/voyagenie/_apis/wiki/wikis/voyagenie.wiki/pages?path=/Performance-Test-Result&api-version=7.1',
     {
       method: 'PUT',
       headers: {
@@ -66,3 +66,4 @@ updateWiki().catch(err => {
   console.error(err);
   process.exit(1);
 });
+``
