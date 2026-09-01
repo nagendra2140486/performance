@@ -1,4 +1,16 @@
 const fs = require('fs');
+const APP_CONFIG = require('./app-config');
+
+/*
+ * Read payload
+ */
+
+const payload = JSON.parse(
+  fs.readFileSync(
+    'payload.json',
+    'utf8'
+  )
+);
 
 const report = JSON.parse(
   fs.readFileSync(
@@ -7,11 +19,24 @@ const report = JSON.parse(
   )
 );
 
-const metrics = report.metrics || {};
+const app =
+  APP_CONFIG[payload.appname];
 
-const getMetric = name => {
-  return metrics[name] || {};
-};
+if (!app) {
+  throw new Error(
+    `Unsupported application: ${payload.appname}`
+  );
+}
+
+const metrics =
+  report.metrics || {};
+
+const getMetric = name =>
+  metrics[name] || {};
+
+/*
+ * Journey definitions
+ */
 
 const journeyMap = [
   {
@@ -61,28 +86,35 @@ const journeyMap = [
   }
 ];
 
+/*
+ * Analyze journeys
+ */
+
 const journeys = [];
 const failures = [];
 
 for (const journey of journeyMap) {
 
-  const m = getMetric(
-    journey.metric
-  );
+  const metric =
+    getMetric(
+      journey.metric
+    );
 
-  if (!m.avg) {
+  if (!metric.avg) {
     continue;
   }
 
   const avg =
     Number(
-      m.avg.toFixed(2)
+      metric.avg.toFixed(2)
     );
 
   const p95 =
     Number(
-      (m['p(95)'] || 0)
-        .toFixed(2)
+      (
+        metric['p(95)'] ||
+        0
+      ).toFixed(2)
     );
 
   const passed =
@@ -112,7 +144,7 @@ for (const journey of journeyMap) {
         `P95 < ${journey.target} ms`,
 
       reason:
-        `${journey.name} exceeded the agreed performance threshold and may impact user experience.`
+        `${journey.name} exceeded the agreed response-time threshold. Users may experience slower page loads or delayed responses when using this functionality.`
     });
 
   }
@@ -133,8 +165,15 @@ const overallStatus =
     ? 'failed'
     : 'passed';
 
+/*
+ * JSON model
+ */
+
 const analysisJson = {
   stage: 'performance',
+
+  pr_id:
+    payload.pr_id || '',
 
   runner: 'k6',
 
@@ -157,15 +196,24 @@ const analysisJson = {
   failures
 };
 
-const journeyTable =
-  journeys.map(j =>
-`| ${j.name} | ${j.avg_ms} | ${j.p95_ms} | ${j.status} |`
-  ).join('\n');
+/*
+ * Markdown sections
+ */
 
-const failureMarkdown =
+const journeyTable =
+  journeys
+    .map(
+      j =>
+        `| ${j.name} | ${j.avg_ms} | ${j.p95_ms} | ${j.status} |`
+    )
+    .join('\n');
+
+const findings =
   failures.length
-    ? failures.map(
-        f => `
+    ? failures
+        .map(
+          f =>
+`
 ### ${f.journey}
 
 Observed:
@@ -177,13 +225,14 @@ Expected:
 Reason:
 ${f.reason}
 `
-      ).join('\n')
+        )
+        .join('\n')
     : `
 No performance threshold violations were detected.
 `;
 
 const analysisMarkdown = `
-# Performance Execution — Voyagenie
+# Performance Execution — ${payload.appname} PR #${payload.pr_id || 'N/A'}
 
 ## Overall Summary
 
@@ -203,7 +252,7 @@ ${journeyTable}
 
 ## Performance Findings
 
-${failureMarkdown}
+${findings}
 
 ## Conclusion
 
@@ -214,15 +263,25 @@ ${
 }
 `;
 
+/*
+ * Final PRQE report
+ */
+
 const performanceReport = {
   id:
-    `voyagenie_performance-report_${Date.now()}`,
+    `${payload.appname}_performance-report_${payload.pr_id || Date.now()}`,
 
   appname:
-    'voyagenie',
+    payload.appname,
 
   reporttype:
     'performance-report',
+
+  repository:
+    app.repo,
+
+  pr_id:
+    payload.pr_id || '',
 
   analysis_markdown:
     analysisMarkdown,
@@ -245,5 +304,5 @@ fs.writeFileSync(
 );
 
 console.log(
-  'performance-analysis.json generated'
+  'performance-analysis.json generated successfully'
 );
