@@ -35,7 +35,7 @@ steps:
     PAYLOAD: ${{ parameters.payload }}
 
 #
-# Generate performance configuration
+# Generate Performance Config
 #
 
 - script: |
@@ -44,7 +44,7 @@ steps:
   displayName: 'Generate Performance Config'
 
 #
-# Clone target application
+# Clone Application Repository
 #
 
 - script: |
@@ -53,7 +53,7 @@ steps:
   displayName: 'Clone Application Repository'
 
 #
-# Copy payload into cloned repo
+# Copy payload
 #
 
 - script: |
@@ -71,13 +71,13 @@ steps:
   displayName: 'Copy Performance Report Generator'
 
 #
-# Copy performance wiki updater
+# Copy wiki updater
 #
 
 - script: |
-    cp update-performance-wiki.js app/update-performance-wiki.js
+    cp update-wiki.js app/update-wiki.js
 
-  displayName: 'Copy Performance Wiki Updater'
+  displayName: 'Copy Wiki Updater'
 
 #
 # Install k6
@@ -113,7 +113,7 @@ steps:
   displayName: 'Verify k6'
 
 #
-# Execute performance test
+# Execute Performance Test
 #
 
 - script: |
@@ -131,7 +131,7 @@ steps:
     VOYAGENIE_API_URL: $(VOYAGENIE_API_URL)
 
 #
-# Generate PRQE performance report
+# Generate Performance Analysis
 #
 
 - script: |
@@ -144,7 +144,7 @@ steps:
   condition: always()
 
 #
-# Publish pipeline summary
+# Publish Summary
 #
 
 - script: |
@@ -153,8 +153,7 @@ steps:
 
     Performance execution completed.
 
-    See the performance-analysis artifact for detailed results.
-
+    See performance-analysis artifact for detailed results.
     EOF
 
     echo "##vso[task.uploadsummary]$(pwd)/performance-summary.md"
@@ -166,11 +165,11 @@ steps:
   condition: always()
 
 #
-# Update Azure DevOps Wiki
+# Update Wiki
 #
 
 - script: |
-    node update-performance-wiki.js
+    node update-wiki.js
 
   workingDirectory: app
 
@@ -182,7 +181,7 @@ steps:
     ADO_PAT: $(ADO_PAT)
 
 #
-# Publish performance report to PRQE API
+# Publish Performance Report API
 #
 
 - script: |
@@ -212,7 +211,7 @@ steps:
   condition: always()
 
 #
-# Publish performance analysis artifact
+# Publish Performance Analysis
 #
 
 - task: PublishPipelineArtifact@1
@@ -225,7 +224,7 @@ steps:
     artifact: 'performance-analysis'
 
 #
-# Publish raw k6 output
+# Publish Raw k6 Report
 #
 
 - task: PublishPipelineArtifact@1
@@ -238,7 +237,7 @@ steps:
     artifact: 'performance-raw'
 
 #
-# Publish performance assets
+# Publish Performance Assets
 #
 
 - task: PublishPipelineArtifact@1
