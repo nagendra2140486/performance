@@ -71,13 +71,13 @@ steps:
   displayName: 'Copy Performance Report Generator'
 
 #
-# Copy wiki updater
+# Copy performance wiki updater
 #
 
 - script: |
-    cp update-wiki.js app/update-wiki.js
+    cp update-performance-wiki.js app/update-performance-wiki.js
 
-  displayName: 'Copy Wiki Updater'
+  displayName: 'Copy Performance Wiki Updater'
 
 #
 # Install k6
@@ -144,7 +144,7 @@ steps:
   condition: always()
 
 #
-# Publish Pipeline Summary
+# Publish pipeline summary
 #
 
 - script: |
@@ -153,7 +153,8 @@ steps:
 
     Performance execution completed.
 
-    See performance-analysis artifact for details.
+    See the performance-analysis artifact for detailed results.
+
     EOF
 
     echo "##vso[task.uploadsummary]$(pwd)/performance-summary.md"
@@ -165,11 +166,11 @@ steps:
   condition: always()
 
 #
-# Update Azure Wiki
+# Update Azure DevOps Wiki
 #
 
 - script: |
-    node update-wiki.js
+    node update-performance-wiki.js
 
   workingDirectory: app
 
@@ -181,7 +182,7 @@ steps:
     ADO_PAT: $(ADO_PAT)
 
 #
-# Publish Performance Report API
+# Publish performance report to PRQE API
 #
 
 - script: |
@@ -211,7 +212,7 @@ steps:
   condition: always()
 
 #
-# Publish Analysis Report
+# Publish performance analysis artifact
 #
 
 - task: PublishPipelineArtifact@1
@@ -224,7 +225,7 @@ steps:
     artifact: 'performance-analysis'
 
 #
-# Publish Raw k6 Report
+# Publish raw k6 output
 #
 
 - task: PublishPipelineArtifact@1
@@ -237,7 +238,7 @@ steps:
     artifact: 'performance-raw'
 
 #
-# Publish Performance Scripts
+# Publish performance assets
 #
 
 - task: PublishPipelineArtifact@1
