@@ -1,10 +1,8 @@
 const fs = require('fs');
-const APP_CONFIG = require('./app-config');
 
 /*
  * Read payload
  */
-
 const payload = JSON.parse(
   fs.readFileSync(
     'payload.json',
@@ -12,21 +10,15 @@ const payload = JSON.parse(
   )
 );
 
+/*
+ * Read raw k6 report
+ */
 const report = JSON.parse(
   fs.readFileSync(
     'performance-report.json',
     'utf8'
   )
 );
-
-const app =
-  APP_CONFIG[payload.appname];
-
-if (!app) {
-  throw new Error(
-    `Unsupported application: ${payload.appname}`
-  );
-}
 
 const metrics =
   report.metrics || {};
@@ -37,7 +29,6 @@ const getMetric = name =>
 /*
  * Journey definitions
  */
-
 const journeyMap = [
   {
     name: 'Catalogue',
@@ -89,7 +80,6 @@ const journeyMap = [
 /*
  * Analyze journeys
  */
-
 const journeys = [];
 const failures = [];
 
@@ -144,7 +134,7 @@ for (const journey of journeyMap) {
         `P95 < ${journey.target} ms`,
 
       reason:
-        `${journey.name} exceeded the agreed response-time threshold. Users may experience slower page loads or delayed responses when using this functionality.`
+        `${journey.name} exceeded the agreed response-time threshold and may impact user experience.`
     });
 
   }
@@ -166,9 +156,8 @@ const overallStatus =
     : 'passed';
 
 /*
- * JSON model
+ * Analysis JSON
  */
-
 const analysisJson = {
   stage: 'performance',
 
@@ -199,14 +188,12 @@ const analysisJson = {
 /*
  * Markdown sections
  */
-
 const journeyTable =
-  journeys
-    .map(
-      j =>
-        `| ${j.name} | ${j.avg_ms} | ${j.p95_ms} | ${j.status} |`
-    )
-    .join('\n');
+  journeys.map(
+    j =>
+      `| ${j.name} | ${j.avg_ms} | ${j.p95_ms} | ${j.status} |`
+  )
+  .join('\n');
 
 const findings =
   failures.length
@@ -266,7 +253,6 @@ ${
 /*
  * Final PRQE report
  */
-
 const performanceReport = {
   id:
     `${payload.appname}_performance-report_${payload.pr_id || Date.now()}`,
@@ -278,7 +264,7 @@ const performanceReport = {
     'performance-report',
 
   repository:
-    app.repo,
+    payload.repository || '',
 
   pr_id:
     payload.pr_id || '',
@@ -290,8 +276,8 @@ const performanceReport = {
     analysisJson,
 
   created_at:
-    new Date()
-      .toISOString()
+    payload.generated_at ||
+    new Date().toISOString()
 };
 
 fs.writeFileSync(
