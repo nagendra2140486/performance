@@ -1,0 +1,232 @@
+trigger: none
+
+parameters:
+- name: payload
+  type: string
+  default: ''
+
+variables:
+- group: PAT
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+
+- checkout: self
+
+- task: UseNode@1
+  displayName: 'Install Node.js'
+  inputs:
+    version: '20.x'
+
+#
+# Save payload
+#
+
+- script: |
+    printf '%s' "$PAYLOAD" > payload.json
+
+    echo "Payload saved"
+
+  displayName: 'Save Payload'
+
+  env:
+    PAYLOAD: ${{ parameters.payload }}
+
+#
+# Clone target application
+#
+
+- script: |
+    node clone-app.js
+
+  displayName: 'Clone Application Repository'
+
+#
+# Copy payload
+#
+
+- script: |
+    cp payload.json app/payload.json
+
+  displayName: 'Copy Payload'
+
+#
+# Copy performance report generator
+#
+
+- script: |
+    cp generate-performance-report.js app/perf/generate-performance-report.js
+
+  displayName: 'Copy Performance Report Generator'
+
+#
+# Generate performance configuration
+#
+
+- script: |
+    node generate-performance-config.js
+
+  displayName: 'Generate Performance Config'
+
+#
+# Install k6
+#
+
+- script: |
+    sudo apt-get update
+
+    sudo apt-get install -y \
+      gnupg \
+      software-properties-common
+
+    curl -fsSL https://dl.k6.io/key.gpg | \
+      sudo gpg --dearmor \
+      -o /usr/share/keyrings/k6-archive-keyring.gpg
+
+    echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | \
+      sudo tee /etc/apt/sources.list.d/k6.list
+
+    sudo apt-get update
+
+    sudo apt-get install -y k6
+
+  displayName: 'Install k6'
+
+#
+# Execute performance script
+#
+
+- script: |
+    k6 run \
+      perf/critical-journeys.js \
+      --summary-export=performance-report.json
+
+  workingDirectory: app
+
+  displayName: 'Execute Performance Tests'
+
+  env:
+    APP_API_URL: $(APP_API_URL)
+
+  continueOnError: true
+
+#
+# Generate PRQE performance report
+#
+
+- script: |
+    node perf/generate-performance-report.js
+
+  workingDirectory: app
+
+  displayName: 'Generate Performance Analysis'
+
+  condition: always()
+
+#
+# Update Wiki
+#
+
+- script: |
+    node update-performance-wiki.js
+
+  workingDirectory: app
+
+  displayName: 'Update Wiki'
+
+  condition: always()
+
+  env:
+    ADO_PAT: $(ADO_PAT)
+
+#
+# Publish Summary
+#
+
+- script: |
+    cat > performance-summary.md << EOF
+    # PRQE Performance Execution
+
+    Performance execution completed.
+
+    See performance-analysis artifact for complete results.
+    EOF
+
+    echo "##vso[task.uploadsummary]$(pwd)/performance-summary.md"
+
+  workingDirectory: app
+
+  displayName: 'Publish Performance Summary'
+
+  condition: always()
+
+#
+# Publish API
+#
+
+- script: |
+    echo "Publishing performance report..."
+
+    RESPONSE=$(curl -s \
+      --location \
+      --request POST \
+      --header "Content-Type: application/json" \
+      --data @performance-analysis.json \
+      --write-out "\nHTTP_STATUS:%{http_code}" \
+      "https://prqe-services-hsddfvfffjcjceef.canadacentral-01.azurewebsites.net/api/publish")
+
+    echo "$RESPONSE"
+
+    HTTP_STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
+
+    if [ "$HTTP_STATUS" -ge 400 ]; then
+      echo "Publish API failed"
+      exit 1
+    fi
+
+  workingDirectory: app
+
+  displayName: 'Publish Performance Report'
+
+  condition: always()
+
+#
+# Publish Performance Analysis
+#
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Performance Analysis'
+
+  condition: always()
+
+  inputs:
+    targetPath: 'app/performance-analysis.json'
+    artifact: 'performance-analysis'
+
+#
+# Publish Raw k6 Output
+#
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Raw Performance Report'
+
+  condition: always()
+
+  inputs:
+    targetPath: 'app/performance-report.json'
+    artifact: 'performance-raw'
+
+#
+# Publish Performance Assets
+#
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish Performance Assets'
+
+  condition: always()
+
+  inputs:
+    targetPath: 'app/perf'
+    artifact: 'performance-assets'
