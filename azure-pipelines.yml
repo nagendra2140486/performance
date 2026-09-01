@@ -35,6 +35,15 @@ steps:
     PAYLOAD: ${{ parameters.payload }}
 
 #
+# Generate performance configuration
+#
+
+- script: |
+    node generate-performance-config.js
+
+  displayName: 'Generate Performance Config'
+
+#
 # Clone target application
 #
 
@@ -44,7 +53,7 @@ steps:
   displayName: 'Clone Application Repository'
 
 #
-# Copy payload
+# Copy payload into cloned repo
 #
 
 - script: |
@@ -62,13 +71,13 @@ steps:
   displayName: 'Copy Performance Report Generator'
 
 #
-# Generate performance configuration
+# Copy wiki updater
 #
 
 - script: |
-    node generate-performance-config.js
+    cp update-wiki.js app/update-wiki.js
 
-  displayName: 'Generate Performance Config'
+  displayName: 'Copy Wiki Updater'
 
 #
 # Install k6
@@ -95,7 +104,16 @@ steps:
   displayName: 'Install k6'
 
 #
-# Execute performance script
+# Verify k6
+#
+
+- script: |
+    k6 version
+
+  displayName: 'Verify k6'
+
+#
+# Execute performance test
 #
 
 - script: |
@@ -105,12 +123,12 @@ steps:
 
   workingDirectory: app
 
-  displayName: 'Execute Performance Tests'
-
-  env:
-    APP_API_URL: $(APP_API_URL)
+  displayName: 'Execute Performance Test'
 
   continueOnError: true
+
+  env:
+    VOYAGENIE_API_URL: $(VOYAGENIE_API_URL)
 
 #
 # Generate PRQE performance report
@@ -126,23 +144,7 @@ steps:
   condition: always()
 
 #
-# Update Wiki
-#
-
-- script: |
-    node update-performance-wiki.js
-
-  workingDirectory: app
-
-  displayName: 'Update Wiki'
-
-  condition: always()
-
-  env:
-    ADO_PAT: $(ADO_PAT)
-
-#
-# Publish Summary
+# Publish Pipeline Summary
 #
 
 - script: |
@@ -151,7 +153,7 @@ steps:
 
     Performance execution completed.
 
-    See performance-analysis artifact for complete results.
+    See performance-analysis artifact for details.
     EOF
 
     echo "##vso[task.uploadsummary]$(pwd)/performance-summary.md"
@@ -163,7 +165,23 @@ steps:
   condition: always()
 
 #
-# Publish API
+# Update Azure Wiki
+#
+
+- script: |
+    node update-wiki.js
+
+  workingDirectory: app
+
+  displayName: 'Update Wiki'
+
+  condition: always()
+
+  env:
+    ADO_PAT: $(ADO_PAT)
+
+#
+# Publish Performance Report API
 #
 
 - script: |
@@ -193,7 +211,7 @@ steps:
   condition: always()
 
 #
-# Publish Performance Analysis
+# Publish Analysis Report
 #
 
 - task: PublishPipelineArtifact@1
@@ -206,11 +224,11 @@ steps:
     artifact: 'performance-analysis'
 
 #
-# Publish Raw k6 Output
+# Publish Raw k6 Report
 #
 
 - task: PublishPipelineArtifact@1
-  displayName: 'Publish Raw Performance Report'
+  displayName: 'Publish Raw k6 Report'
 
   condition: always()
 
@@ -219,7 +237,7 @@ steps:
     artifact: 'performance-raw'
 
 #
-# Publish Performance Assets
+# Publish Performance Scripts
 #
 
 - task: PublishPipelineArtifact@1
