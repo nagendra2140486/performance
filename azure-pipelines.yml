@@ -164,21 +164,7 @@ steps:
 
   condition: always()
 
-#
-# Update Wiki
-#
 
-- script: |
-    node update-wiki.js
-
-  workingDirectory: app
-
-  displayName: 'Update Wiki'
-
-  condition: always()
-
-  env:
-    ADO_PAT: $(ADO_PAT)
 
 #
 # Publish Performance Report API
