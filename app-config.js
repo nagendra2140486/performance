@@ -6,6 +6,11 @@ module.exports = {
     branch:
       'nagendra/functionaltests',
 
+    // TODO: replace with Voyagenie's real deployed URL (currently supplied
+    // out-of-band via the $(VOYAGENIE_API_URL) pipeline variable instead).
+    apiUrl:
+      'https://REPLACE_WITH_VOYAGENIE_LIVE_URL',
+
     perfScript:
       'perf/critical-journeys.js',
 
@@ -19,6 +24,9 @@ module.exports = {
 
     branch:
       'main',
+
+    apiUrl:
+      'https://qea-timesheet-uat-ayfch9f0ehhwg6fp.canadacentral-01.azurewebsites.net',
 
     perfScript:
       'perf/critical-journeys.js',
