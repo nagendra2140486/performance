@@ -4,154 +4,129 @@ const fs = require('fs');
  * Read payload
  */
 const payload = JSON.parse(
-  fs.readFileSync(
-    'payload.json',
-    'utf8'
-  )
+  fs.readFileSync('payload.json', 'utf8')
 );
 
 /*
  * Read raw k6 report
  */
 const report = JSON.parse(
-  fs.readFileSync(
-    'performance-report.json',
-    'utf8'
-  )
+  fs.readFileSync('performance-report.json', 'utf8')
 );
 
-const metrics =
-  report.metrics || {};
-
-const getMetric = name =>
-  metrics[name] || {};
+const metrics = report.metrics || {};
 
 /*
- * Journey definitions
+ * Turn a metric name into a readable journey name, e.g.
+ * "journey_export_pdf_ms" -> "Export PDF", "journey_auth_ms" -> "Auth".
+ * A handful of acronyms are kept upper-case; everything else is title-cased.
  */
-const journeyMap = [
-  {
-    name: 'Catalogue',
-    metric: 'journey_catalogue_ms',
-    target: 500
-  },
-  {
-    name: 'Destination Detail',
-    metric: 'journey_destination_detail_ms',
-    target: 500
-  },
-  {
-    name: 'Packages',
-    metric: 'journey_packages_ms',
-    target: 500
-  },
-  {
-    name: 'Contact',
-    metric: 'journey_contact_ms',
-    target: 500
-  },
-  {
-    name: 'AI Itinerary',
-    metric: 'journey_ai_itinerary_ms',
-    target: 1500
-  },
-  {
-    name: 'AI Chat',
-    metric: 'journey_ai_chat_ms',
-    target: 1500
-  },
-  {
-    name: 'AI Budget',
-    metric: 'journey_ai_budget_ms',
-    target: 1500
-  },
-  {
-    name: 'Governance',
-    metric: 'journey_governance_ms',
-    target: 800
-  },
-  {
-    name: 'Trips',
-    metric: 'journey_trips_ms',
-    target: 500
-  }
-];
+const ACRONYMS = new Set(['ai', 'csv', 'pdf', 'api', 'id']);
+
+const toJourneyName = (metricName) =>
+  metricName
+    .replace(/^journey_/, '')
+    .replace(/_ms$/, '')
+    .split('_')
+    .map((word) =>
+      ACRONYMS.has(word)
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1)
+    )
+    .join(' ');
 
 /*
- * Analyze journeys
+ * A k6 threshold key looks like "p(95)<400" — pull the numeric budget out of it.
+ * Falls back to null (no target) if the key doesn't parse, so a journey with an
+ * unusual/missing threshold still gets reported instead of silently dropped.
  */
+const parseTargetMs = (thresholdKey) => {
+  const match = thresholdKey.match(/<\s*(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : null;
+};
+
+/*
+ * Discover every "journey_*_ms" metric this app's k6 script defined — no hardcoded
+ * list, so any app's critical-journeys.js works here unchanged.
+ */
+const journeyMetricNames = Object.keys(metrics)
+  .filter((name) => /^journey_.+_ms$/.test(name))
+  .sort();
+
 const journeys = [];
-const failures = [];
+const thresholdFailures = [];
 
-for (const journey of journeyMap) {
+for (const metricName of journeyMetricNames) {
+  const metric = metrics[metricName];
 
-  const metric =
-    getMetric(
-      journey.metric
-    );
-
-  if (!metric.avg) {
+  if (metric.avg === undefined) {
     continue;
   }
 
-  const avg =
-    Number(
-      metric.avg.toFixed(2)
-    );
+  const avg = Number(metric.avg.toFixed(2));
+  const p95 = Number((metric['p(95)'] || 0).toFixed(2));
+  const name = toJourneyName(metricName);
 
-  const p95 =
-    Number(
-      (
-        metric['p(95)'] ||
-        0
-      ).toFixed(2)
-    );
-
-  const passed =
-    p95 <= journey.target;
+  const thresholdEntries = Object.entries(metric.thresholds || {});
+  // k6 threshold values are "was this threshold BREACHED?" — true means failed.
+  const breached = thresholdEntries.some(([, isBreached]) => isBreached === true);
+  const target = thresholdEntries.length ? parseTargetMs(thresholdEntries[0][0]) : null;
 
   journeys.push({
-    name: journey.name,
+    name,
+    metric: metricName,
     avg_ms: avg,
     p95_ms: p95,
-    target_ms: journey.target,
-    status:
-      passed
-        ? 'passed'
-        : 'failed'
+    target_ms: target,
+    status: breached ? 'failed' : 'passed'
   });
 
-  if (!passed) {
-
-    failures.push({
-      journey:
-        journey.name,
-
-      observed:
-        `P95 = ${p95} ms`,
-
-      expected:
-        `P95 < ${journey.target} ms`,
-
-      reason:
-        `${journey.name} exceeded the agreed response-time threshold and may impact user experience.`
+  if (breached) {
+    thresholdFailures.push({
+      journey: name,
+      observed: `P95 = ${p95} ms`,
+      expected: target !== null ? `P95 < ${target} ms` : 'within configured threshold',
+      reason: `${name} exceeded its response-time threshold and may impact user experience.`
     });
-
   }
-
 }
 
-const totalRequests =
-  metrics.http_reqs?.count || 0;
+/*
+ * Functional (non-perf) failures: any check that failed at least once, wherever it
+ * sits in the group tree. A slow journey and a broken endpoint are different kinds of
+ * problems, so these are kept separate from thresholdFailures rather than merged in.
+ */
+const checkFailures = [];
 
-const checksPassed =
-  metrics.checks?.passes || 0;
+const walkGroups = (group, groupPath) => {
+  for (const [checkName, check] of Object.entries(group.checks || {})) {
+    if (check.fails > 0) {
+      checkFailures.push({
+        group: groupPath,
+        check: checkName,
+        passes: check.passes,
+        fails: check.fails
+      });
+    }
+  }
 
-const checksFailed =
-  metrics.checks?.fails || 0;
+  for (const [childName, childGroup] of Object.entries(group.groups || {})) {
+    walkGroups(childGroup, groupPath ? `${groupPath} > ${childName}` : childName);
+  }
+};
 
+walkGroups(report.root_group || {}, '');
+
+const totalRequests = metrics.http_reqs?.count || 0;
+const checksPassed = metrics.checks?.passes || 0;
+const checksFailed = metrics.checks?.fails || 0;
+
+// Failed if ANY threshold was breached OR any check failed — checksFailed is the raw
+// signal from k6 itself and must gate the status independently of the journey list,
+// otherwise a metric-name mismatch (or a check with no matching journey metric) could
+// silently produce a false "passed" the way it did before this fix.
 const overallStatus =
-  failures.length
+  thresholdFailures.length > 0 || checkFailures.length > 0 || checksFailed > 0
     ? 'failed'
     : 'passed';
 
@@ -160,48 +135,35 @@ const overallStatus =
  */
 const analysisJson = {
   stage: 'performance',
-
-  pr_id:
-    payload.pr_id || '',
-
+  pr_id: payload.pr_id || '',
   runner: 'k6',
-
   overall: {
-    requests:
-      totalRequests,
-
-    checks_passed:
-      checksPassed,
-
-    checks_failed:
-      checksFailed,
-
-    status:
-      overallStatus
+    requests: totalRequests,
+    checks_passed: checksPassed,
+    checks_failed: checksFailed,
+    status: overallStatus
   },
-
   journeys,
-
-  failures
+  threshold_failures: thresholdFailures,
+  check_failures: checkFailures,
+  // Kept for backward compatibility with anything reading `failures` from earlier reports.
+  failures: thresholdFailures
 };
 
 /*
  * Markdown sections
  */
-const journeyTable =
-  journeys.map(
-    j =>
-      `| ${j.name} | ${j.avg_ms} | ${j.p95_ms} | ${j.status} |`
-  )
-  .join('\n');
+const journeyTable = journeys.length
+  ? journeys
+      .map((j) => `| ${j.name} | ${j.avg_ms} | ${j.p95_ms} | ${j.target_ms ?? '—'} | ${j.status} |`)
+      .join('\n')
+  : '| _no journey_*_ms metrics found in this run_ | | | | |';
 
-const findings =
-  failures.length
-    ? failures
-        .map(
-          f =>
-`
-### ${f.journey}
+const thresholdFindings = thresholdFailures.length
+  ? thresholdFailures
+      .map(
+        (f) => `
+### ${f.journey} (threshold)
 
 Observed:
 - ${f.observed}
@@ -212,11 +174,24 @@ Expected:
 Reason:
 ${f.reason}
 `
-        )
-        .join('\n')
-    : `
-No performance threshold violations were detected.
-`;
+      )
+      .join('\n')
+  : '';
+
+const checkFindings = checkFailures.length
+  ? `
+### Failed checks
+
+| Group | Check | Passes | Fails |
+| --- | --- | ---: | ---: |
+${checkFailures.map((c) => `| ${c.group || '—'} | ${c.check} | ${c.passes} | ${c.fails} |`).join('\n')}
+`
+  : '';
+
+const findings =
+  thresholdFindings || checkFindings
+    ? `${thresholdFindings}${checkFindings}`
+    : '\nNo performance threshold violations or check failures were detected.\n';
 
 const analysisMarkdown = `
 # Performance Execution — ${payload.appname} PR #${payload.pr_id || 'N/A'}
@@ -230,11 +205,12 @@ Performance testing completed.
 | Requests | ${totalRequests} |
 | Passed Checks | ${checksPassed} |
 | Failed Checks | ${checksFailed} |
+| Status | ${overallStatus} |
 
 ## Journey Results
 
-| Journey | Avg (ms) | P95 (ms) | Status |
-| --- | ---: | ---: | --- |
+| Journey | Avg (ms) | P95 (ms) | Target (ms) | Status |
+| --- | ---: | ---: | ---: | --- |
 ${journeyTable}
 
 ## Performance Findings
@@ -244,8 +220,8 @@ ${findings}
 ## Conclusion
 
 ${
-  failures.length
-    ? 'One or more performance thresholds were violated and require investigation.'
+  overallStatus === 'failed'
+    ? 'One or more performance thresholds or functional checks failed and require investigation.'
     : 'All tested journeys completed within acceptable performance limits.'
 }
 `;
@@ -254,41 +230,19 @@ ${
  * Final PRQE report
  */
 const performanceReport = {
-  id:
-    `${payload.appname}_performance-report_${payload.pr_id || Date.now()}`,
-
-  appname:
-    payload.appname,
-
-  reporttype:
-    'performance-report',
-
-  repository:
-    payload.repository || '',
-
-  pr_id:
-    payload.pr_id || '',
-
-  analysis_markdown:
-    analysisMarkdown,
-
-  analysis_json:
-    analysisJson,
-
-  created_at:
-    payload.generated_at ||
-    new Date().toISOString()
+  id: `${payload.appname}_performance-report_${payload.pr_id || Date.now()}`,
+  appname: payload.appname,
+  reporttype: 'performance-report',
+  repository: payload.repository || '',
+  pr_id: payload.pr_id || '',
+  analysis_markdown: analysisMarkdown,
+  analysis_json: analysisJson,
+  created_at: payload.generated_at || new Date().toISOString()
 };
 
 fs.writeFileSync(
   'performance-analysis.json',
-  JSON.stringify(
-    performanceReport,
-    null,
-    2
-  )
+  JSON.stringify(performanceReport, null, 2)
 );
 
-console.log(
-  'performance-analysis.json generated successfully'
-);
+console.log('performance-analysis.json generated successfully');
