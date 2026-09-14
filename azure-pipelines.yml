@@ -44,6 +44,29 @@ steps:
   displayName: 'Generate Performance Config'
 
 #
+# Export Test Parameters
+#
+# Surfaces per-app values from performance-config.json as pipeline variables so
+# nothing downstream needs to know which app is under test.
+#
+
+- script: |
+    API_URL=$(node -pe "require('./performance-config.json').apiUrl")
+    PERF_SCRIPT=$(node -pe "require('./performance-config.json').perfScript")
+
+    if [ -z "$API_URL" ]; then
+      echo "##vso[task.logissue type=warning]No apiUrl configured for this app in app-config.js; k6 will fall back to its script's localhost default."
+    fi
+
+    echo "##vso[task.setvariable variable=API_URL]$API_URL"
+    echo "##vso[task.setvariable variable=PERF_SCRIPT]$PERF_SCRIPT"
+
+    echo "API_URL=$API_URL"
+    echo "PERF_SCRIPT=$PERF_SCRIPT"
+
+  displayName: 'Export Test Parameters'
+
+#
 # Clone Application Repository
 #
 
@@ -118,7 +141,7 @@ steps:
 
 - script: |
     k6 run \
-      perf/critical-journeys.js \
+      "$(PERF_SCRIPT)" \
       --summary-export=performance-report.json
 
   workingDirectory: app
@@ -128,7 +151,7 @@ steps:
   continueOnError: true
 
   env:
-    VOYAGENIE_API_URL: $(VOYAGENIE_API_URL)
+    API_URL: $(API_URL)
 
 #
 # Generate Performance Analysis
