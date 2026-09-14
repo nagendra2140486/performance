@@ -20,6 +20,13 @@ const config = {
 
   branch: app.branch,
 
+  // payload.api_url lets a specific run point at a different environment
+  // (e.g. a per-PR preview URL) without editing app-config.js.
+  apiUrl:
+    payload.api_url ||
+    app.apiUrl ||
+    '',
+
   perfScript: app.perfScript,
 
   reportScript: app.reportScript,
@@ -30,6 +37,13 @@ const config = {
     payload.generated_at ||
     new Date().toISOString()
 };
+
+if (!config.apiUrl) {
+  console.warn(
+    `Warning: no apiUrl configured for '${payload.appname}'. ` +
+    `The performance test will fall back to its script's localhost default.`
+  );
+}
 
 fs.writeFileSync(
   'performance-config.json',
