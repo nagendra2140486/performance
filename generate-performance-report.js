@@ -233,6 +233,7 @@ const performanceReport = {
   id: `${payload.appname}_performance-report_${payload.pr_id || Date.now()}`,
   appname: payload.appname,
   reporttype: 'performance-report',
+  ai_framework: payload.ai_framework || 'k6',
   repository: payload.repository || '',
   pr_id: payload.pr_id || '',
   analysis_markdown: analysisMarkdown,
