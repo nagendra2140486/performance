@@ -232,8 +232,7 @@ ${
 const performanceReport = {
   id: `${payload.appname}_performance-report_${payload.pr_id || Date.now()}`,
   appname: payload.appname,
-  reporttype: 'performance-report',
-  
+  reporttype: 'perf-report',
   repository: payload.repository || '',
   pr_id: payload.pr_id || '',
   analysis_markdown: analysisMarkdown,
